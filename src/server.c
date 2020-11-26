@@ -23,6 +23,8 @@ enum file_type {
     BINARY,
     MEDIA
 };
+char ANSWER_OK[] = "HTTP/1.1 200\ncontent-type: %s\ncontent-length: %d\n\n";
+#define OK_LEN sizeof(ANSWER_OK) + 20
 char *get_word(char *last_ch, int client_socket) {
     char ch, *word = NULL;
     int size = 1;
@@ -80,21 +82,7 @@ void print_cmd(char **cmd) {
         printf("%s ", cmd[i]);
     }
 }
-void write_num(size_t n, int fd) {
-    char ch;
-    if (n < 10) {
-        ch = '0' + n;
-        write(fd, &ch, 1);
-        return;
-    } else {
-        write_num(n / 10, fd);
-    }
-    n = n % 10;
-    ch = '0' + n;
-    write(fd, &ch, 1);
-    return;
-}
-int init_socket(int port) {
+nt init_socket(int port) {
     //open socket, return socket descriptor
     int server_socket = socket(PF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {
@@ -152,21 +140,31 @@ int synt_check(int client_socket, char **cmd) {
     }
    return 0;
 }
-int get_text(int client_socket, char **cmd) {
+void print_header(int client_socket, char *path, int type) {
+    char answer[OK_LEN];
+    char *str_type;
+    struct stat Stat;
+    if (type == TEXT) {
+        str_type = "text/html";
+    } else if (type == BINARY) {
+            str_type = "binary";
+        } else if(type == MEDIA) {
+                str_type = "media";
+                }
+    stat(path, &Stat);
+    snprintf(answer, OK_LEN, ANSWER_OK, str_type, Stat.st_size);
+    write(client_socket, answer, strlen(answer));
+    return;
+}
+int get_text(int client_socket, char *path) {
     int fd;
     struct stat Stat;
-    stat(cmd[1], &Stat);
-    fd = open(cmd[1], O_RDONLY, S_IRUSR | S_IWUSR);
+    stat(path, &Stat);
+    fd = open(path, O_RDONLY, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         write(client_socket, "HTTP/1.1 404\n", 13);
         return -1;
     }
-    write(client_socket, "HTTP/1.1 200\n", 13);
-    write(client_socket, "content-type: html/text\n", 24);
-    write(client_socket, "content-length: ", 16);
-    write_num(Stat.st_size, client_socket);
-    write(client_socket, "\n", 1);
-    write(client_socket, "\n", 1);
     char *buf = malloc(Stat.st_size * sizeof(char));
     read(fd, buf, Stat.st_size);
     write(client_socket, buf, Stat.st_size);
@@ -250,10 +248,11 @@ int client_service(int client_socket) {
         return -1;
     request_path = cmd[1];
     type = get_type(request_path);
+    print_header(client_socket, request_path, type);
     if (type == BINARY) {
        run_bin(client_socket, request_path); 
     } else if (type == TEXT) {
-            get_text(client_socket, cmd);
+            get_text(client_socket, request_path);
         } else if (type == MEDIA) {
         
         }

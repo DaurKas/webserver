@@ -82,7 +82,7 @@ void print_cmd(char **cmd) {
         printf("%s ", cmd[i]);
     }
 }
-nt init_socket(int port) {
+int init_socket(int port) {
     //open socket, return socket descriptor
     int server_socket = socket(PF_INET, SOCK_STREAM, 0);
     if (server_socket < 0) {

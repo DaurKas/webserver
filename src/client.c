@@ -71,14 +71,24 @@ char *get_text(char end_ch) {
 }
 void send_request(int server ,char *filename, char *host) {
     char *message = malloc((15 + strlen(filename)) * sizeof(char));
+    char *str_host = "host: %s", *host_send = NULL;
+    host_send = malloc(strlen(str_host) + strlen(host));
+    sprintf(host_send, str_host, host);
     sprintf(message, "GET %s HTTP/1.1\n", filename);
     write(server, message, strlen(message));
-    write(1, message, strlen(message));
-    write(1, "host: ", 7);
-    write(1, host, strlen(host));
-    write(1, "\n\n", 2);
+    write(server, host_send, strlen(host_send));
+    write(server, "\n\n", 2);
     free(message);
     return;
+}
+char *add_slash(char *filename) {
+    char *new = NULL;
+    new = malloc((strlen(filename) + 2) * sizeof(char));
+    new[0] = '/';
+    memcpy(new + 1, filename, strlen(filename));
+    new[strlen(filename) + 1] = '\0';
+    free(filename);
+    return new;
 }
 int request() {
     char *str_port = NULL;
@@ -90,6 +100,7 @@ int request() {
     port = atoi(str_port);
     server = init_socket(ip, port);
     filename = get_text(' ');
+    filename = add_slash(filename);
     if (server < 0) {
         printf("Connection error\n");
         printf("%s %s\n", ip, str_port);

@@ -24,7 +24,9 @@ enum file_type {
     MEDIA
 };
 char ANSWER_OK[] = "HTTP/1.1 200\ncontent-type: %s\ncontent-length: %d\n\n";
+char ANSWER_WRONG[] = "HTTP/1.1 404\n\n";
 #define OK_LEN sizeof(ANSWER_OK) + 20
+#define WRONG_LEN sizeof(ANSWER_WRONG)
 char *get_word(char *last_ch, int client_socket) {
     char ch, *word = NULL;
     int size = 1;
@@ -34,7 +36,7 @@ char *get_word(char *last_ch, int client_socket) {
     }
     int len = 0;
     word = malloc(sizeof(char));
-    while (ch != ' ' && ch != '\n') {
+    while (ch != ' ' && ch != '\n' && ch != '\r') {
         word = realloc(word, (len + 1) * sizeof(char));
         word[len] = ch;
         len++;
@@ -49,13 +51,18 @@ char *get_word(char *last_ch, int client_socket) {
     return word;
 }
 
-char **get_list(int client_socket) {
+char **get_list(int client_socket, char *last) {
     char **list = NULL, last_ch;
     int count = 1;
     list = malloc(sizeof(char*));
-    if (!list)
+    if (!list )
         return NULL;
     list[0] = get_word(&last_ch, client_socket);
+    if (list[0][0] == '\0') {
+        free(list[0]);
+        free(list);
+        return NULL;
+    }
     while (last_ch != '\n') {
         list = realloc(list, (count + 1) * sizeof(char*));
         list[count] = get_word(&last_ch, client_socket);
@@ -63,6 +70,7 @@ char **get_list(int client_socket) {
     }
     list = realloc(list, (count + 1) * sizeof(char*));
     list[count] = NULL;
+    *last = last_ch;
     return list;
 }
 void free_list(char **list) {
@@ -127,19 +135,6 @@ int str_cmp(char *str1, char *str2) {  //  0 - eq, 1 - s1 < s2, 2 - s1 > s2
     } while (str1[i] && str2[i]);
     return 0;
 }
-int synt_check(int client_socket, char **cmd) {
-    char *http = "HTTP/1.1";
-    for (int word_cnt = 0; cmd[word_cnt] != NULL; word_cnt++);
-    if (str_cmp(cmd[0], "GET") != 0) {
-        write(client_socket, "HTTP/1.1 404\n", 13);
-        return -1;
-    }
-    if (str_cmp(cmd[2], http) != 0) {
-        write(client_socket, "HTTP/1.1 404\n", 13);
-        return -1;
-    }
-   return 0;
-}
 void print_header(int client_socket, char *path, int type) {
     char answer[OK_LEN];
     char *str_type;
@@ -156,7 +151,7 @@ void print_header(int client_socket, char *path, int type) {
     write(client_socket, answer, strlen(answer));
     return;
 }
-int get_text(int client_socket, char *path) {
+int get_text(int client_socket, char *path, int type) {
     int fd;
     struct stat Stat;
     stat(path, &Stat);
@@ -165,6 +160,7 @@ int get_text(int client_socket, char *path) {
         write(client_socket, "HTTP/1.1 404\n", 13);
         return -1;
     }
+    print_header(client_socket, path, type);
     char *buf = malloc(Stat.st_size * sizeof(char));
     read(fd, buf, Stat.st_size);
     write(client_socket, buf, Stat.st_size);
@@ -176,9 +172,25 @@ int run_bin(int client_socket, char *request_path) {
     pid_t pid;
     pid = fork();
     if (pid == 0) {
-        dup2(client_socket, 1);
-        close(client_socket);
-        execl(request_path, request_path, NULL);
+        int buf = open("buf.txt", O_WRONLY | O_CREAT | O_TRUNC,
+                                S_IRUSR | S_IWUSR);
+        pid_t pid2 = fork();
+        if (pid2 == 0) {
+            dup2(buf, 1);
+            close(buf);
+            int res = execl(request_path, request_path, NULL);
+            if (res < 0) 
+                exit(1);
+            else 
+                exit(0);
+        }
+        int wstatus;
+        wait(&wstatus);
+        if (WEXITSTATUS(wstatus) == 1) {
+            write(client_socket, ANSWER_WRONG, WRONG_LEN);
+        } else {
+            get_text(client_socket, "./buf.txt", BINARY);
+        }
         exit(0);
     }
     wait(NULL);
@@ -237,26 +249,48 @@ int wait4connection(int server_socket) {
     }
     return client_socket;
 }
-
+char ***receive_req(int client_socket) {
+    char ***request = malloc(sizeof(char**));
+    int cnt = 0;
+    char last_ch;
+    while(1) {
+        request = realloc(request, (cnt + 1) * sizeof(char**));
+        request[cnt] = get_list(client_socket, &last_ch);
+        if (request[cnt] == NULL) 
+            break;
+        print_cmd(request[cnt]);
+        putchar('\n');
+        cnt++;
+    }
+    return request;
+}
+char *rm_slash(char *request_path) {
+    char *new = NULL;
+    new = malloc(strlen(request_path));
+    memcpy(new, request_path + 1, strlen(request_path) - 1);
+    new[strlen(request_path) - 1] = '\0';
+    return new;
+}
 int client_service(int client_socket) {
-    char **cmd = NULL, *request_path = NULL;
+    char *request_path = NULL, ***request = NULL;
     enum file_type type;
-    cmd = get_list(client_socket);
-    print_cmd(cmd);
-    printf("from %d\n", client_socket);
-    if (synt_check(client_socket, cmd) < 0)
-        return -1;
-    request_path = cmd[1];
+    request = receive_req(client_socket);
+    request_path = request[0][1];
+    request_path = rm_slash(request_path);
+    printf("%s \n", request_path);
     type = get_type(request_path);
-    print_header(client_socket, request_path, type);
     if (type == BINARY) {
        run_bin(client_socket, request_path); 
     } else if (type == TEXT) {
-            get_text(client_socket, request_path);
+            get_text(client_socket, request_path, TEXT);
         } else if (type == MEDIA) {
         
         }
-    free_list(cmd);
+    for (int i = 0; request[i] != NULL; i++) {
+        free_list(request[i]);
+    }
+    free(request);
+    free(request_path);
     printf("close socket\n");
     write(client_socket, "", 1);
     close(client_socket);

@@ -1,7 +1,7 @@
 # webserver
 1. Download
 ```
-git clone https://github.com/DaurKas/shell
+git clone https://github.com/DaurKas/webserver
 ```
 2. Compile
 ```

@@ -1,4 +1,10 @@
-all: bin resources/cgi-bin bin/server bin/client resources/cgi-source/hello
+CFLAGS := -Wall -Werror -lm -fsanitize=undefined -fsanitize=address
+SRC  := ./resources/cgi-source
+BIN  := ./resources/cgi-bin
+SRCS := $(wildcard $(SRC)/*.c)
+EXEC := $(patsubst $(SRC)/%.c,$(BIN)/%,$(SRCS))
+.PHONY: all clean
+all: bin resources/cgi-bin bin/server bin/client $(EXEC)
 	
 bin:
 	mkdir bin
@@ -11,13 +17,12 @@ bin/server: src/server.c
 
 bin/client: src/client.c
 	gcc src/client.c -o bin/client -Wall -Werror -lm -fsanitize=undefined -fsanitize=address
-
-resources/cgi-source/hello: resources/cgi-source/hello.c
-	gcc resources/cgi-source/hello.c -o resources/cgi-bin/hello -Wall -Werror -lm -fsanitize=undefined -fsanitize=address
+	
+$(BIN)/%: $(SRC)/%.c
+	@echo [Compiling]: $@
+	gcc $(CFLAGS) $< -o $@
 
 clean:
-	rm bin/server bin/client
-	rmdir bin
-	rm resources/cgi-bin/hello
-	rmdir rsources/cg-bin
+	rm -r bin
+	rm -r resources/cgi-bin
 

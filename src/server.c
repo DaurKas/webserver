@@ -168,7 +168,56 @@ int get_text(int client_socket, char *path, int type) {
     free(buf);
     return 0;
 }
-int run_bin(int client_socket, char *request_path) {
+int search_char(char ch, char *word) {
+    int pos = -1;
+    for(int i = 0; word[i] != '\0'; i++) {
+        if (word[i] == '?') {
+            pos = i;
+            break;
+        }
+    }
+    return pos;
+}
+char **get_args(char *request_path) {
+    char **args = malloc(2 * sizeof(char*));
+    args[0] = NULL;
+    int q_pos, cnt = 1;
+    q_pos = search_char('?', request_path);
+    if (q_pos < 0) {
+        args[0] = realloc(args[0], strlen(request_path) + 1);
+        memcpy(args[0], request_path, strlen(request_path));
+        args[0][strlen(request_path)] = '\0';
+        args[1] = NULL;
+        return args;
+    }
+    args[0] = realloc(args[0], (q_pos + 1) * sizeof(char));
+    memcpy(args[0], request_path, q_pos);
+    args[0][q_pos] = '\0';
+    while (1) {
+        int len = 0, pos = q_pos + 1;
+        char ch = request_path[pos];
+        q_pos = pos;
+        for (; ch != '&' && ch != '=' && ch != '\0'; pos++, len++) {
+            ch = request_path[pos];
+        }
+        args = realloc(args, (cnt + 1) * sizeof(char*));
+        args[cnt] = malloc((len + 1) * sizeof(char));
+        memcpy(args[cnt], request_path + q_pos, len - 1);
+        args[cnt][len - 1] = '\0';
+        cnt++;
+        if (ch == '\0')
+            break;
+        q_pos = pos - 1;
+    }
+    args = realloc(args, (cnt + 1) * sizeof(char*));
+    args[cnt] = NULL;
+    return args;
+}
+int run_bin(int client_socket, char *request_path) {    
+    char **args = get_args(request_path);
+    //  char *path = NULL;
+    //  path = args[0];
+    print_cmd(args);
     pid_t pid;
     pid = fork();
     if (pid == 0) {
@@ -178,7 +227,7 @@ int run_bin(int client_socket, char *request_path) {
         if (pid2 == 0) {
             dup2(buf, 1);
             close(buf);
-            int res = execl(request_path, request_path, NULL);
+            int res = execv(args[0], args);
             if (res < 0) 
                 exit(1);
             else 
@@ -194,6 +243,7 @@ int run_bin(int client_socket, char *request_path) {
         exit(0);
     }
     wait(NULL);
+    free_list(args);
     return 0;
 }
 char *get_ext(char *request_path) {

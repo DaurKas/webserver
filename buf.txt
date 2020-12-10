@@ -1,2 +1,0 @@
-4 arguments received
-nastya's grade on math is 4

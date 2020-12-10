@@ -144,7 +144,7 @@ void print_header(int client_socket, char *path, int type) {
     } else if (type == BINARY) {
             str_type = "binary";
         } else if(type == MEDIA) {
-                str_type = "media";
+                str_type = "image";
                 }
     stat(path, &Stat);
     snprintf(answer, OK_LEN, ANSWER_OK, str_type, Stat.st_size);
@@ -276,10 +276,27 @@ int get_type(char *request_path) {
         type = TEXT;
     if (str_cmp(ext, ".html") == 0)
         type = TEXT;
-    if (str_cmp(ext, ".jpeg") == 0)
+    if (str_cmp(ext, ".jpg") == 0 || str_cmp(ext, ".jpeg") == 0)
         type = MEDIA;
-    free(ext);;
+    free(ext);
     return type;
+}
+int get_img(int client_socket, char *request_path) {
+    int fd;
+    struct stat Stat;
+    stat(request_path, &Stat);
+    fd = open(request_path, O_RDONLY, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        write(client_socket, "HTTP/1.1 404\n", 13);
+        return -1;
+    }
+    print_header(client_socket, request_path, MEDIA);
+    char *buf = malloc(Stat.st_size * sizeof(char));
+    read(fd, buf, Stat.st_size);
+    write(client_socket, buf, Stat.st_size);
+    write(client_socket, "\n", 1);
+    free(buf);
+    return 0;
 }
 int wait4connection(int server_socket) {
     struct sockaddr_in client_address;
@@ -334,7 +351,7 @@ int client_service(int client_socket) {
     } else if (type == TEXT) {
             get_text(client_socket, request_path, TEXT);
         } else if (type == MEDIA) {
-        
+                get_img(client_socket, request_path); 
         }
     for (int i = 0; request[i] != NULL; i++) {
         free_list(request[i]);
@@ -371,6 +388,7 @@ int main(int argc, char** argv) {
             free(client_socket);
             return OK;
         }
+        close(client_socket[client_num]);
         client_num++;
     }
     free(client_socket);

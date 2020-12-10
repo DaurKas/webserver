@@ -8,7 +8,14 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <fcntl.h>
 
+char ANSWER_OK[] = "HTTP/1.1 200\n";
+char ANSWER_WRONG[] = "HTTP/1.1 404\n";
+char CONTENT_IMG[] = "content-type: image\n";
+#define OK_LEN sizeof(ANSWER_OK)
+#define WRONG_LEN sizeof(ANSWER_WRONG)
+int img_num = 1;
 enum errors {
     OK,
     ERR_INCORRECT_ARGS,
@@ -45,15 +52,81 @@ int str_cmp(char *str1, char *str2) {  //  0 - eq, 1 - s1 < s2, 2 - s1 > s2
     } while (str1[i] && str2[i]);
     return 0;
 }
-void reciever(int server) {
+char *recieve_line(int server) {
+    char ch = 1, *line = NULL;
+    int len = 1;
+    int res = read(server, &ch, 1);
+    if (res <= 0) 
+        return NULL;
+    line = malloc(sizeof(char));
+    line[0] = ch;
+    while (ch != '\n') {
+        res = read(server, &ch, 1);
+        if (res <= 0)
+            break;
+        line = realloc(line, (len + 1) * sizeof(char));
+        line[len] = ch;
+        len++;
+    }
+    line = realloc(line, (len + 1) * sizeof(char));
+    line[len] = '\0';
+    return line;
+}
+int recieve_header(int server) {
+    char *line = NULL;
+    char *content_type = NULL;
+    char *content_len = NULL, *buf = NULL;
+    int is_image = 0;
+    line = recieve_line(server);
+    puts(line);
+    if (str_cmp(line, ANSWER_OK) == 0) {
+        content_type = recieve_line(server);
+        content_len = recieve_line(server);
+        buf = recieve_line(server);
+        printf("%s%s", content_type, content_len);
+        if (str_cmp(content_type, CONTENT_IMG) == 0) {
+            is_image = 1;
+        }
+        free(buf);
+        free(content_type);
+        free(content_len);
+    }
+    free(line);
+    return is_image;
+}
+int recieve_img(int server) {
+    int fd, size = 1;
     char ch = 1;
-    int size = 1;
-    while(ch > 0) {
+    char name[] = "image%d.jpg";
+    size_t name_len = (strlen(name) + 10) * sizeof(char);
+    char *new_file = malloc(name_len);
+    snprintf(new_file,name_len, name, img_num);
+    fd = open(new_file, O_WRONLY | O_CREAT | O_TRUNC,
+                                S_IRUSR | S_IWUSR);
+    img_num++;
+    while(1) {
         size = read(server, &ch, 1);
         if (size <= 0) {
-            return;
+            return 0;
         }
-        putchar(ch);
+        write(fd, &ch, 1);
+    }
+    return 0;
+}
+void reciever(int server) {
+    char ch = 1;
+    int size = 1, is_img = 0;
+    is_img = recieve_header(server);
+    if (is_img) {
+        recieve_img(server);
+    } else {
+        while(ch > 0) {
+            size = read(server, &ch, 1);
+            if (size <= 0) {
+                return;
+            }
+            putchar(ch);
+        }
     }
 }
 char *get_text(char end_ch) {

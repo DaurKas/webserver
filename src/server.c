@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/sem.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 enum errors {
@@ -23,10 +24,18 @@ enum file_type {
     BINARY,
     MEDIA
 };
+union semun {
+    int val;
+    struct semid_ds *buf;
+    unsigned short *array;
+};
+struct sembuf minus = { 0, -1, SEM_UNDO};
+struct sembuf plus = { 0, 1, SEM_UNDO};
 char ANSWER_OK[] = "HTTP/1.1 200\ncontent-type: %s\ncontent-length: %d\n\n";
 char ANSWER_WRONG[] = "HTTP/1.1 404\n\n";
 #define OK_LEN sizeof(ANSWER_OK) + 20
 #define WRONG_LEN sizeof(ANSWER_WRONG)
+#define KEY 0x111
 char *get_word(char *last_ch, int client_socket) {
     char ch, *word = NULL;
     int size = 1;
@@ -276,7 +285,7 @@ int get_type(char *request_path) {
         type = TEXT;
     if (str_cmp(ext, ".html") == 0)
         type = TEXT;
-    if (str_cmp(ext, ".jpg") == 0 || str_cmp(ext, ".jpeg") == 0)
+    if (str_cmp(ext, ".jpg") == 0 || str_cmp(ext, ".png") == 0)
         type = MEDIA;
     free(ext);
     return type;
@@ -338,21 +347,35 @@ char *rm_slash(char *request_path) {
     new[strlen(request_path) - 1] = '\0';
     return new;
 }
+void post_text(int client_socket, char *request_path, char *arg_str) {
+    char *cmd_post = "./resources/cgi-bin/post?file=%s&%s";
+    size_t cmd_size = strlen(cmd_post) + 128;
+    char *cmd_to_exec = malloc(cmd_size);
+    sprintf(cmd_to_exec, cmd_post, request_path, arg_str);
+    run_bin(client_socket, cmd_to_exec);
+    free(cmd_to_exec);
+    return;
+}
 int client_service(int client_socket) {
-    char *request_path = NULL, ***request = NULL;
+    char *request_path = NULL, ***request = NULL, *request_type;
     enum file_type type;
     request = receive_req(client_socket);
+    request_type = request[0][0];
+    printf("%s \n", request_type);
     request_path = request[0][1];
     request_path = rm_slash(request_path);
     printf("%s \n", request_path);
     type = get_type(request_path);
-    if (type == BINARY) {
-       run_bin(client_socket, request_path); 
-    } else if (type == TEXT) {
-            get_text(client_socket, request_path, TEXT);
-        } else if (type == MEDIA) {
-                get_img(client_socket, request_path); 
-        }
+    if (str_cmp(request_type, "POST") == 0) {
+        char *arg_str = request[2][0];
+        post_text(client_socket, request_path, arg_str);
+    } else if (type == BINARY) {
+            run_bin(client_socket, request_path); 
+        } else if (type == TEXT) {
+                get_text(client_socket, request_path, TEXT);
+            } else if (type == MEDIA) {
+                    get_img(client_socket, request_path); 
+                }
     for (int i = 0; request[i] != NULL; i++) {
         free_list(request[i]);
     }
@@ -373,24 +396,35 @@ int main(int argc, char** argv) {
     }
     int port = atoi(argv[1]);
     int server_socket = init_socket(port);
-    int *client_socket = malloc(sizeof(int));
-    int client_num = 0;
-    while(1) {
-        puts("Wait for connection");
-        client_socket = realloc(client_socket, (client_num + 1) * sizeof(int));
-        client_socket[client_num] = wait4connection(server_socket);
-        if (client_socket[client_num] <= 0) {
-            break;
-        }
-        pid_t pid = fork();
-        if (pid == 0) {
-            client_service(client_socket[client_num]);
-            free(client_socket);
-            return OK;
-        }
-        close(client_socket[client_num]);
-        client_num++;
+    int id = semget(KEY, 1, 0666 | IPC_CREAT);
+    if (id < 0) {
+        printf("Something gone wrong, exit\n");
+        return 0;
     }
-    free(client_socket);
+    //int *client_socket = malloc(sizeof(int));
+    int client_socket;
+    union semun free_clients;
+    free_clients.val = 1;
+    if (semctl(id, 0, SETVAL, free_clients) < 0) {
+        printf("error in semafor init\n");
+        return 1;
+    }
+    while(1) {
+        //client_socket = realloc(client_socket, (client_num + 1) * sizeof(int));
+        //client_socket[client_num] = wait4connection(server_socket);
+        if (free_clients.val > 0) {
+            if (semop(id, &minus, 1) < 0)
+                printf("SEMOP IS WRONG\n");
+            pid_t pid = fork();
+            if (pid == 0) {
+                client_socket = wait4connection(server_socket);
+                client_service(client_socket);
+                semop(id, &plus, 1);
+                return OK;
+            }
+        } else {
+            printf("LIMIT OF CONNECTIONS\n");
+        }
+    }
     return OK;
 }

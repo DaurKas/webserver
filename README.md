@@ -21,6 +21,12 @@ make all
 ```
 6. Example
 ```
+127.0.0.1:2001/resources/multimedia/test.jpg
 127.0.0.1:2001/resources/cgi-bin/grades?name=dauren&subject=math
 127.0.0.1:2001/resources/html/index.html
+```
+7. Post text
+```
+[host]:[post]/[file]%[args]
+127.0.0.1:2001/resources/database/grades.csv%name=dauren&subject=math&grade=5
 ```
